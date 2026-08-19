@@ -1,14 +1,13 @@
 namespace WarehouseApi.Models;
 
 /// <summary>
-/// Server-side record of an issued refresh token.
-///
-/// Security notes:
-/// - Only a SHA-256 hash of the token is stored (TokenHash), never the raw value —
-///   the same principle as password hashing: a DB leak shouldn't hand out usable tokens.
-/// - Tokens are single-use and rotated on every refresh (RevokedAtUtc set on use).
-/// - If a revoked token is presented again, that's a signal of possible theft/replay,
-///   so the whole token family for that user gets revoked (see AuthEndpoints.RefreshAsync).
+///     Server-side record of an issued refresh token.
+///     Security notes:
+///     - Only a SHA-256 hash of the token is stored (TokenHash), never the raw value —
+///     the same principle as password hashing: a DB leak shouldn't hand out usable tokens.
+///     - Tokens are single-use and rotated on every refresh (RevokedAtUtc set on use).
+///     - If a revoked token is presented again, that's a signal of possible theft/replay,
+///     so the whole token family for that user gets revoked (see AuthEndpoints.RefreshAsync).
 /// </summary>
 public class RefreshToken
 {

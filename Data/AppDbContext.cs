@@ -5,12 +5,16 @@ using WarehouseApi.Models;
 namespace WarehouseApi.Data;
 
 /// <summary>
-/// All data access goes through EF Core with LINQ — every query is parameterized
-/// automatically, which is the primary defense against SQL injection (OWASP A03).
-/// Raw SQL / string-concatenated queries are intentionally never used in this template.
+///     All data access goes through EF Core with LINQ — every query is parameterized
+///     automatically, which is the primary defense against SQL injection (OWASP A03).
+///     Raw SQL / string-concatenated queries are intentionally never used in this template.
 /// </summary>
-public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser>(options)
+public class AppDbContext : IdentityDbContext<ApplicationUser>
 {
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    {
+    }
+
     public DbSet<Product> Products => Set<Product>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
@@ -30,9 +34,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         {
             entity.HasIndex(r => r.TokenHash).IsUnique();
             entity.HasOne<ApplicationUser>()
-                  .WithMany()
-                  .HasForeignKey(r => r.UserId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

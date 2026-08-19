@@ -7,11 +7,18 @@ using WarehouseApi.Models;
 
 namespace WarehouseApi.Services;
 
-public class TokenService(IConfiguration configuration) : ITokenService
+public class TokenService : ITokenService
 {
+    private readonly IConfiguration _configuration;
+
+    public TokenService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
     public string GenerateAccessToken(ApplicationUser user, IEnumerable<string> roles)
     {
-        var jwtSection = configuration.GetSection("Jwt");
+        var jwtSection = _configuration.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSection["Key"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -27,9 +34,9 @@ public class TokenService(IConfiguration configuration) : ITokenService
         var expiresMinutes = double.TryParse(jwtSection["AccessTokenMinutes"], out var m) ? m : 15;
 
         var token = new JwtSecurityToken(
-            issuer: jwtSection["Issuer"],
-            audience: jwtSection["Audience"],
-            claims: claims,
+            jwtSection["Issuer"],
+            jwtSection["Audience"],
+            claims,
             expires: DateTime.UtcNow.AddMinutes(expiresMinutes),
             signingCredentials: credentials);
 

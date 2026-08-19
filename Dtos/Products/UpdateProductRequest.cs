@@ -1,3 +1,14 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace WarehouseApi.Dtos.Products;
 
-public record UpdateProductRequest(string Name, string Category, int Quantity, decimal Price);
+public record UpdateProductRequest(
+    [property: Required]
+    [property: MaxLength(150)]
+    string Name,
+    [property: Required]
+    [property: MaxLength(80)]
+    string Category,
+    [property: Range(0, int.MaxValue)] int Quantity,
+    [property: Range(typeof(decimal), "0", "999999")]
+    decimal Price);

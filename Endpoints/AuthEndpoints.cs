@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using WarehouseApi.Common;
@@ -16,55 +17,40 @@ public static class AuthEndpoints
             .WithTags("Auth")
             .RequireRateLimiting("auth"); // Tighter limiter than the rest of the API — see Program.cs
 
-        group.MapPost("/register", RegisterAsync)
-            .AddEndpointFilter<ValidationFilter<RegisterRequest>>()
-            .Produces(StatusCodes.Status201Created)
-            .ProducesValidationProblem()
-            .Produces(StatusCodes.Status409Conflict);
-
-        group.MapPost("/login", LoginAsync)
-            .AddEndpointFilter<ValidationFilter<LoginRequest>>()
-            .Produces<AuthResponse>()
-            .Produces(StatusCodes.Status401Unauthorized);
-
-        group.MapPost("/refresh", RefreshAsync)
-            .Produces<AuthResponse>()
-            .Produces(StatusCodes.Status401Unauthorized);
-
-        group.MapPost("/revoke", RevokeAsync)
-            .RequireAuthorization()
-            .Produces(StatusCodes.Status204NoContent);
+        // Request validation (DataAnnotations on the DTOs) happens automatically via
+        // builder.Services.AddValidation() — no endpoint filter needed here anymore.
+        group.MapPost("/register", RegisterAsync);
+        group.MapPost("/login", LoginAsync);
+        group.MapPost("/refresh", RefreshAsync);
+        group.MapPost("/revoke", RevokeAsync).RequireAuthorization();
     }
 
-    private static async Task<IResult> RegisterAsync(
-        RegisterRequest request,
-        UserManager<ApplicationUser> userManager,
-        ILogger<Program> logger)
+    private static async Task<Results<Created<RegisteredUserResponse>, ValidationProblem, Conflict<ErrorResponse>>>
+        RegisterAsync(
+            RegisterRequest request,
+            UserManager<ApplicationUser> userManager,
+            ILogger<Program> logger)
     {
         var existing = await userManager.FindByEmailAsync(request.Email);
         if (existing is not null)
-        {
             // Deliberately generic — confirming "this email is already registered"
             // is a user-enumeration vector (OWASP A07).
-            return Results.Conflict(new { error = "Unable to register with the provided details." });
-        }
+            return TypedResults.Conflict(new ErrorResponse("Unable to register with the provided details."));
 
         var user = new ApplicationUser { UserName = request.Email, Email = request.Email };
         var result = await userManager.CreateAsync(user, request.Password);
 
         if (!result.Succeeded)
-        {
-            return Results.ValidationProblem(
+            return TypedResults.ValidationProblem(
                 result.Errors.ToDictionary(e => e.Code, e => new[] { e.Description }));
-        }
 
         await userManager.AddToRoleAsync(user, Roles.Viewer);
         logger.LogInformation("New user registered: {UserId}", user.Id);
 
-        return Results.Created($"/api/auth/users/{user.Id}", new { user.Id, user.Email });
+        return TypedResults.Created($"/api/auth/users/{user.Id}", new RegisteredUserResponse(user.Id, user.Email));
     }
 
-    private static async Task<IResult> LoginAsync(
+    private static async Task<Results<Ok<AuthResponse>, UnauthorizedHttpResult>> LoginAsync(
         LoginRequest request,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
@@ -76,7 +62,7 @@ public static class AuthEndpoints
         var user = await userManager.FindByEmailAsync(request.Email);
 
         var checkResult = user is not null
-            ? await signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true)
+            ? await signInManager.CheckPasswordSignInAsync(user, request.Password, true)
             : SignInResult.Failed;
 
         if (user is null || !checkResult.Succeeded)
@@ -84,7 +70,7 @@ public static class AuthEndpoints
             // Same generic response whether the email doesn't exist, the password is
             // wrong, or the account is locked out — avoids leaking account state.
             logger.LogWarning("Failed login attempt for {Email}", request.Email);
-            return Results.Unauthorized();
+            return TypedResults.Unauthorized();
         }
 
         var roles = await userManager.GetRolesAsync(user);
@@ -102,10 +88,10 @@ public static class AuthEndpoints
         });
         await db.SaveChangesAsync();
 
-        return Results.Ok(new AuthResponse(accessToken, refreshToken, expiresAtUtc));
+        return TypedResults.Ok(new AuthResponse(accessToken, refreshToken, expiresAtUtc));
     }
 
-    private static async Task<IResult> RefreshAsync(
+    private static async Task<Results<Ok<AuthResponse>, UnauthorizedHttpResult>> RefreshAsync(
         RefreshRequest request,
         AppDbContext db,
         UserManager<ApplicationUser> userManager,
@@ -115,10 +101,7 @@ public static class AuthEndpoints
         var hash = tokenService.HashToken(request.RefreshToken);
         var existing = await db.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash);
 
-        if (existing is null)
-        {
-            return Results.Unauthorized();
-        }
+        if (existing is null) return TypedResults.Unauthorized();
 
         if (existing.RevokedAtUtc is not null)
         {
@@ -129,25 +112,16 @@ public static class AuthEndpoints
                 .Where(r => r.UserId == existing.UserId && r.RevokedAtUtc == null)
                 .ToListAsync();
 
-            foreach (var token in activeTokens)
-            {
-                token.RevokedAtUtc = DateTime.UtcNow;
-            }
+            foreach (var token in activeTokens) token.RevokedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync();
 
-            return Results.Unauthorized();
+            return TypedResults.Unauthorized();
         }
 
-        if (!existing.IsActive)
-        {
-            return Results.Unauthorized();
-        }
+        if (!existing.IsActive) return TypedResults.Unauthorized();
 
         var user = await userManager.FindByIdAsync(existing.UserId);
-        if (user is null)
-        {
-            return Results.Unauthorized();
-        }
+        if (user is null) return TypedResults.Unauthorized();
 
         // Rotate: the old token is consumed, a new one takes its place.
         existing.RevokedAtUtc = DateTime.UtcNow;
@@ -167,10 +141,11 @@ public static class AuthEndpoints
         });
         await db.SaveChangesAsync();
 
-        return Results.Ok(new AuthResponse(accessToken, newRefreshToken, newExpiresAtUtc));
+        return TypedResults.Ok(new AuthResponse(accessToken, newRefreshToken, newExpiresAtUtc));
     }
 
-    private static async Task<IResult> RevokeAsync(RefreshRequest request, AppDbContext db, ITokenService tokenService)
+    private static async Task<NoContent> RevokeAsync(RefreshRequest request, AppDbContext db,
+        ITokenService tokenService)
     {
         var hash = tokenService.HashToken(request.RefreshToken);
         var existing = await db.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash);
@@ -182,6 +157,6 @@ public static class AuthEndpoints
         }
 
         // 204 either way — don't reveal whether the token existed.
-        return Results.NoContent();
+        return TypedResults.NoContent();
     }
 }

@@ -1,20 +1,18 @@
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
-using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
+using Scalar.AspNetCore;
 using Serilog;
 using WarehouseApi.Common;
 using WarehouseApi.Data;
 using WarehouseApi.Endpoints;
 using WarehouseApi.Middleware;
 using WarehouseApi.Models;
+using WarehouseApi.OpenApi;
 using WarehouseApi.Services;
 
 Log.Logger = new LoggerConfiguration()
@@ -27,7 +25,7 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    builder.Host.UseSerilog((context, services, configuration) => configuration
+    builder.Host.UseSerilog((context, _, configuration) => configuration
         .ReadFrom.Configuration(context.Configuration)
         .Enrich.FromLogContext()
         .WriteTo.Console());
@@ -45,21 +43,21 @@ try
     builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
 
     builder.Services.AddIdentityCore<ApplicationUser>(options =>
-    {
-        // Password policy (OWASP ASVS-aligned: length over complexity gymnastics, but we do both here for the demo)
-        options.Password.RequiredLength = 12;
-        options.Password.RequireDigit = true;
-        options.Password.RequireUppercase = true;
-        options.Password.RequireLowercase = true;
-        options.Password.RequireNonAlphanumeric = true;
+        {
+            // Password policy (OWASP ASVS-aligned: length over complexity gymnastics, but we do both here for the demo)
+            options.Password.RequiredLength = 12;
+            options.Password.RequireDigit = true;
+            options.Password.RequireUppercase = true;
+            options.Password.RequireLowercase = true;
+            options.Password.RequireNonAlphanumeric = true;
 
-        // Account lockout after repeated failed attempts — mitigates credential stuffing / brute force.
-        options.Lockout.MaxFailedAccessAttempts = 5;
-        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-        options.Lockout.AllowedForNewUsers = true;
+            // Account lockout after repeated failed attempts — mitigates credential stuffing / brute force.
+            options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+            options.Lockout.AllowedForNewUsers = true;
 
-        options.User.RequireUniqueEmail = true;
-    })
+            options.User.RequireUniqueEmail = true;
+        })
         .AddRoles<IdentityRole>()
         .AddEntityFrameworkStores<AppDbContext>()
         .AddSignInManager()
@@ -72,18 +70,16 @@ try
     var jwtKey = jwtSection["Key"];
 
     if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
-    {
         throw new InvalidOperationException(
             "Jwt:Key must be configured and at least 32 characters (256 bits) long. " +
             "Set it via 'dotnet user-secrets set Jwt:Key \"...\"' locally, or the Jwt__Key " +
             "environment variable in other environments — never commit it to source control.");
-    }
 
     builder.Services.AddAuthentication(options =>
-    {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
         .AddJwtBearer(options =>
         {
             options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
@@ -159,12 +155,10 @@ try
         options.AddPolicy("Default", policy =>
         {
             if (allowedOrigins.Length > 0)
-            {
                 policy.WithOrigins(allowedOrigins)
-                      .AllowAnyHeader()
-                      .WithMethods("GET", "POST", "PUT", "DELETE")
-                      .AllowCredentials();
-            }
+                    .AllowAnyHeader()
+                    .WithMethods("GET", "POST", "PUT", "DELETE")
+                    .AllowCredentials();
             // If nothing is configured, no origins are allowed — fail closed, not open.
         });
     });
@@ -173,28 +167,19 @@ try
     // App services
     // ---------------------------------------------------------------------
     builder.Services.AddScoped<ITokenService, TokenService>();
-    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+    // .NET 10 built-in Minimal API validation: DataAnnotations on request DTOs (and
+    // IValidatableObject for cross-field rules) are now enforced automatically for
+    // query/header/body-bound parameters — no FluentValidation or custom endpoint
+    // filter required. See the Dtos/ folder.
+    builder.Services.AddValidation();
+
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddProblemDetails();
 
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen(options =>
-    {
-        options.SwaggerDoc("v1", new OpenApiInfo { Title = "Warehouse API", Version = "v1" });
-
-        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-        {
-            Scheme = "bearer",
-            BearerFormat = "JWT",
-            Name = "Authorization",
-            In = ParameterLocation.Header,
-            Type = SecuritySchemeType.Http,
-            Description = "Paste the access token returned by /api/auth/login."
-        });
-        options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-        {
-            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
-        });
-    });
+    // Native OpenAPI document generation (OpenAPI 3.1, Microsoft.OpenApi 2.0) —
+    // no Swashbuckle dependency. Scalar below provides the browsable UI.
+    builder.Services.AddOpenApi(options => { options.AddDocumentTransformer<BearerSecuritySchemeTransformer>(); });
 
     var app = builder.Build();
 
@@ -216,48 +201,19 @@ try
     // ---------------------------------------------------------------------
     app.UseSerilogRequestLogging();
 
-    // Centralized exception handling: no stack traces or exception details ever
-    // reach the client in non-Development environments (OWASP A05/A09).
-    app.UseExceptionHandler(errorApp =>
-    {
-        errorApp.Run(async context =>
-        {
-            var feature = context.Features.Get<IExceptionHandlerFeature>();
-            var exception = feature?.Error;
+    // GlobalExceptionHandler (IExceptionHandler, registered above) does the actual work;
+    // this just wires it into the pipeline. No stack traces reach the client outside Development.
+    app.UseExceptionHandler();
 
-            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            logger.LogError(exception, "Unhandled exception while processing {Path}", context.Request.Path);
-
-            context.Response.ContentType = "application/problem+json";
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-
-            var problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status500InternalServerError,
-                Title = "An unexpected error occurred.",
-                Detail = app.Environment.IsDevelopment() ? exception?.ToString() : null,
-                Instance = context.Request.Path
-            };
-
-            await context.Response.WriteAsJsonAsync(problem);
-        });
-    });
-
-    if (!app.Environment.IsDevelopment())
-    {
-        app.UseHsts();
-    }
+    if (!app.Environment.IsDevelopment()) app.UseHsts();
 
     app.UseHttpsRedirection();
     app.UseSecurityHeaders();
 
     if (app.Environment.IsDevelopment())
     {
-        app.UseSwagger(options =>
-        {
-            options.OpenApiVersion = OpenApiSpecVersion.OpenApi3_1;
-        });
-        app.UseSwaggerUI();
+        app.MapOpenApi(); // GET /openapi/v1.json
+        app.MapScalarApiReference(); // Browsable UI at /scalar/v1
     }
 
     app.UseCors("Default");
@@ -267,8 +223,8 @@ try
     app.UseAuthorization();
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy", timeUtc = DateTime.UtcNow }))
-       .AllowAnonymous()
-       .WithTags("Health");
+        .AllowAnonymous()
+        .WithTags("Health");
 
     app.MapAuthEndpoints();
     app.MapProductEndpoints();

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using WarehouseApi.Common;
 using WarehouseApi.Data;
@@ -13,25 +14,17 @@ public static class ProductEndpoints
     {
         var group = app.MapGroup("/api/products").WithTags("Products");
 
-        group.MapGet("/", GetProductsAsync)
-            .RequireAuthorization(Policies.ViewerOrAbove);
-
-        group.MapGet("/{id:guid}", GetProductByIdAsync)
-            .RequireAuthorization(Policies.ViewerOrAbove);
-
-        group.MapPost("/", CreateProductAsync)
-            .AddEndpointFilter<ValidationFilter<CreateProductRequest>>()
-            .RequireAuthorization(Policies.ManagerOrAdmin);
-
-        group.MapPut("/{id:guid}", UpdateProductAsync)
-            .AddEndpointFilter<ValidationFilter<UpdateProductRequest>>()
-            .RequireAuthorization(Policies.ManagerOrAdmin);
-
-        group.MapDelete("/{id:guid}", DeleteProductAsync)
-            .RequireAuthorization(Policies.AdminOnly);
+        // Request validation (DataAnnotations on CreateProductRequest / UpdateProductRequest)
+        // is applied automatically via builder.Services.AddValidation() in Program.cs.
+        group.MapGet("/", GetProductsAsync).RequireAuthorization(Policies.ViewerOrAbove);
+        group.MapGet("/{id:guid}", GetProductByIdAsync).RequireAuthorization(Policies.ViewerOrAbove);
+        group.MapPost("/", CreateProductAsync).RequireAuthorization(Policies.ManagerOrAdmin);
+        group.MapPut("/{id:guid}", UpdateProductAsync).RequireAuthorization(Policies.ManagerOrAdmin);
+        group.MapDelete("/{id:guid}", DeleteProductAsync).RequireAuthorization(Policies.AdminOnly);
     }
 
-    private static async Task<IResult> GetProductsAsync(AppDbContext db, int page = 1, int pageSize = 20, string? search = null)
+    private static async Task<Ok<PagedResult<ProductDto>>> GetProductsAsync(AppDbContext db, int page = 1,
+        int pageSize = 20, string? search = null)
     {
         // Clamp instead of trusting client input directly — an unbounded pageSize
         // is a cheap resource-exhaustion vector (OWASP API4: Unrestricted Resource Consumption).
@@ -55,24 +48,22 @@ public static class ProductEndpoints
             .Select(p => p.ToDto())
             .ToListAsync();
 
-        return Results.Ok(new PagedResult<ProductDto>(items, total, page, pageSize));
+        return TypedResults.Ok(new PagedResult<ProductDto>(items, total, page, pageSize));
     }
 
-    private static async Task<IResult> GetProductByIdAsync(Guid id, AppDbContext db)
+    private static async Task<Results<Ok<ProductDto>, NotFound>> GetProductByIdAsync(Guid id, AppDbContext db)
     {
         var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
-        return product is null ? Results.NotFound() : Results.Ok(product.ToDto());
+        return product is null ? TypedResults.NotFound() : TypedResults.Ok(product.ToDto());
     }
 
-    private static async Task<IResult> CreateProductAsync(CreateProductRequest request, AppDbContext db)
+    private static async Task<Results<Created<ProductDto>, Conflict<ErrorResponse>>> CreateProductAsync(
+        CreateProductRequest request, AppDbContext db)
     {
         var sku = request.Sku.Trim().ToUpperInvariant();
 
         var skuExists = await db.Products.AnyAsync(p => p.Sku == sku);
-        if (skuExists)
-        {
-            return Results.Conflict(new { error = "A product with this SKU already exists." });
-        }
+        if (skuExists) return TypedResults.Conflict(new ErrorResponse("A product with this SKU already exists."));
 
         var product = new Product
         {
@@ -88,16 +79,14 @@ public static class ProductEndpoints
         db.Products.Add(product);
         await db.SaveChangesAsync();
 
-        return Results.Created($"/api/products/{product.Id}", product.ToDto());
+        return TypedResults.Created($"/api/products/{product.Id}", product.ToDto());
     }
 
-    private static async Task<IResult> UpdateProductAsync(Guid id, UpdateProductRequest request, AppDbContext db)
+    private static async Task<Results<Ok<ProductDto>, NotFound>> UpdateProductAsync(Guid id,
+        UpdateProductRequest request, AppDbContext db)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id);
-        if (product is null)
-        {
-            return Results.NotFound();
-        }
+        if (product is null) return TypedResults.NotFound();
 
         product.Name = request.Name.Trim();
         product.Category = request.Category.Trim();
@@ -106,19 +95,16 @@ public static class ProductEndpoints
         product.UpdatedAtUtc = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
-        return Results.Ok(product.ToDto());
+        return TypedResults.Ok(product.ToDto());
     }
 
-    private static async Task<IResult> DeleteProductAsync(Guid id, AppDbContext db)
+    private static async Task<Results<NoContent, NotFound>> DeleteProductAsync(Guid id, AppDbContext db)
     {
         var product = await db.Products.FindAsync(id);
-        if (product is null)
-        {
-            return Results.NotFound();
-        }
+        if (product is null) return TypedResults.NotFound();
 
         db.Products.Remove(product);
         await db.SaveChangesAsync();
-        return Results.NoContent();
+        return TypedResults.NoContent();
     }
 }
