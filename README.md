@@ -1,6 +1,6 @@
 # Warehouse API
 
-A small, security-focused .NET 8 minimal API template. It models a simple warehouse
+A small, security-focused .NET 10 minimal API template. It models a simple warehouse
 (products in, products out) but the point of the project is the scaffolding around
 it: JWT auth with refresh-token rotation, role-based authorization, rate limiting,
 and a handful of OWASP Top 10 mitigations, all in a codebase small enough to read
@@ -8,7 +8,7 @@ in one sitting.
 
 ## Stack
 
-- **.NET 8** minimal APIs (no MVC controllers)
+- **.NET 10** minimal APIs (no MVC controllers)
 - **ASP.NET Core Identity** for user/password/lockout management
 - **JWT bearer** access tokens + a custom, hashed, rotating refresh-token store
 - **EF Core + SQLite** (zero external dependencies to run locally)
@@ -33,7 +33,7 @@ Common/                  roles/policies constants, ValidationFilter, PagedResult
 
 ## Running it
 
-Requires the .NET 8 SDK.
+Requires the .NET 10 SDK.
 
 ```bash
 cd WarehouseApi
