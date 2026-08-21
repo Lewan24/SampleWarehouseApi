@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/*
+  Design tokens for the Warehouse console.
+  Direction: a logistics/inventory tool, not a marketing page — the "designed" moment
+  is concentrated on the login screen and the recurring tag/label motif (below), while
+  the working dashboard stays quiet, dense, and legible. Accent is a warehouse-signage
+  amber (bin labels, forklift paint), not a generic brand blue or a warm terracotta.
+*/
+@theme {
+  --color-paper: #f7f6f2;
+  --color-surface: #ffffff;
+  --color-ink: #17181a;
+  --color-ink-soft: #63666d;
+  --color-line: #e3e0d8;
+
+  --color-slate: #14171c;
+  --color-slate-soft: #1c212b;
+  --color-slate-line: #2a3040;
+  --color-slate-ink: #cdd0d8;
+  --color-slate-ink-soft: #8b8fa0;
+
+  --color-signal: #e2a33b;
+  --color-signal-strong: #c98a25;
+  --color-signal-ink: #7a4b0f;
+  --color-signal-soft: #faf0dc;
+
+  --color-danger: #c1443d;
+  --color-danger-soft: #f8e7e5;
+  --color-danger-ink: #7a2622;
+
+  --color-success: #3c7a5d;
+  --color-success-soft: #e5f0ea;
+  --color-success-ink: #234a38;
+
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Visible keyboard focus everywhere, styled with the accent rather than the browser default. */
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /*
+    Signature element: a die-cut shelf/bin tag, used for role badges (compact) and the
+    login brand mark (large). The notch + punched hole are what a physical warehouse
+    label looks like — it's the one recognizably "designed" shape in an otherwise
+    plain, dense dashboard.
+  */
+  .tag-shape {
+    position: relative;
+    clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%);
+    padding-left: 22px;
+  }
+
+  .tag-shape::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 9999px;
+    background: currentColor;
+    opacity: 0.55;
+    transform: translateY(-50%);
+  }
+}

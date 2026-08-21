@@ -1,0 +1,51 @@
+@baseUrl = https://localhost:5443
+@contentType = application/json
+
+### Health check
+GET {{baseUrl}}/health
+
+### Register a new (Viewer-role) user
+POST {{baseUrl}}/api/auth/register
+Content-Type: {{contentType}}
+
+{
+  "email": "manager@example.com",
+  "password": "StrongPass123!",
+  "confirmPassword": "StrongPass123!"
+}
+
+### Log in as the seeded admin (see appsettings.Development.json)
+# The refresh token comes back as an httpOnly cookie, not in the JSON body — your
+# HTTP client needs to keep cookies between requests for /refresh below to work.
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "email": "admin@example.com",
+  "password": "ChangeMe123!Strong"
+}
+
+### List products (any authenticated role)
+GET {{baseUrl}}/api/products?page=1&pageSize=20
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Create a product (Manager or Admin)
+POST {{baseUrl}}/api/products
+Content-Type: {{contentType}}
+Authorization: Bearer {{login.response.body.accessToken}}
+
+{
+  "name": "Steel Bracket",
+  "sku": "SB-100",
+  "category": "Hardware",
+  "quantity": 250,
+  "price": 3.49
+}
+
+### Refresh the access token (uses the cookie set by /login)
+POST {{baseUrl}}/api/auth/refresh
+
+### Log out (revokes the refresh token and clears the cookie)
+POST {{baseUrl}}/api/auth/revoke
+Authorization: Bearer {{login.response.body.accessToken}}
